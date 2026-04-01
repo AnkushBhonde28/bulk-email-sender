@@ -46,3 +46,5 @@ John,john@gmail.com
 
 - `EMAIL` and `PASSWORD` are loaded from environment variables using `python-dotenv`.
 - Do not commit your `.env` file or log files to GitHub.
+=======
+# bulk-email-sender
