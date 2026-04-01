@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.env
+bulk_email.log
+venv/
+.vscode/

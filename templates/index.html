@@ -1,0 +1,214 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Email Sender</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #5b7cff 0%, #7c4dff 50%, #ff6b6b 100%);
+        }
+
+        .card {
+            width: 100%;
+            max-width: 560px;
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 22px;
+            padding: 32px 28px;
+            box-shadow: 0 20px 45px rgba(34, 24, 88, 0.22);
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 30px;
+            color: #1f2937;
+            text-align: center;
+        }
+
+        .intro {
+            margin: 0 0 24px;
+            text-align: center;
+            color: #5b6475;
+            line-height: 1.6;
+        }
+
+        .note {
+            margin: 0 0 20px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: #eef2ff;
+            color: #3949ab;
+            font-size: 14px;
+        }
+
+        label {
+            display: block;
+            margin: 14px 0 8px;
+            color: #334155;
+            font-weight: 700;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        textarea {
+            width: 100%;
+            border: 1px solid #d7def3;
+            border-radius: 14px;
+            padding: 13px 14px;
+            font-size: 15px;
+            background: #f8faff;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="file"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #6d5dfc;
+            box-shadow: 0 0 0 4px rgba(109, 93, 252, 0.12);
+        }
+
+        textarea {
+            min-height: 180px;
+            resize: vertical;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 22px;
+            padding: 14px 18px;
+            border: none;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #ff7a59 0%, #ff4f81 100%);
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(255, 79, 129, 0.28);
+        }
+
+        .success,
+        .error {
+            margin-top: 20px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            font-weight: 600;
+        }
+
+        .success {
+            background: #ecfdf5;
+            color: #166534;
+        }
+
+        .error {
+            background: #fef2f2;
+            color: #b91c1c;
+        }
+
+        .stats {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .stat-box {
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.7);
+            text-align: center;
+        }
+
+        .stat-label {
+            display: block;
+            font-size: 13px;
+            color: inherit;
+            opacity: 0.8;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 16px;
+            }
+
+            .card {
+                padding: 24px 18px;
+                border-radius: 18px;
+            }
+
+            h1 {
+                font-size: 26px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Bulk Email Sender</h1>
+        <p class="intro">Send personalized emails to your uploaded contact list in a simple way.</p>
+        <p class="note">Use {name} in message for personalization</p>
+
+        <form action="/" method="POST" enctype="multipart/form-data">
+            <label for="csv_file">Upload CSV (name, email)</label>
+            <input type="file" id="csv_file" name="csv_file" accept=".csv" required>
+
+            <label for="subject">Subject</label>
+            <input type="text" id="subject" name="subject" value="{{ subject }}" required>
+
+            <label for="message">Message</label>
+            <textarea id="message" name="message" required>{{ message }}</textarea>
+
+            <button type="submit">Send Emails</button>
+        </form>
+
+        {% if result %}
+            <div class="{{ 'success' if result.success else 'error' }}">
+                <div>{{ result.message }}</div>
+
+                {% if result.total is defined or result.sent is defined or result.failed is defined %}
+                    <div class="stats">
+                        <div class="stat-box">
+                            <span class="stat-label">Total Emails</span>
+                            <span class="stat-value">{{ result.total if result.total is defined else 0 }}</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">Sent</span>
+                            <span class="stat-value">{{ result.sent if result.sent is defined else 0 }}</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">Failed</span>
+                            <span class="stat-value">{{ result.failed if result.failed is defined else 0 }}</span>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
