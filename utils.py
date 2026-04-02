@@ -76,3 +76,40 @@ def render_email_template(template_content, name, email):
 def chunk_recipients(recipients, batch_size):
     for index in range(0, len(recipients), batch_size):
         yield recipients[index:index + batch_size]
+
+
+def recipients_from_dataframe(data_frame, logger=None):
+    if "email" not in data_frame.columns:
+        message = 'CSV file must contain an "email" column.'
+        if logger:
+            logger.error(message)
+        return [], [message]
+
+    if "name" not in data_frame.columns:
+        data_frame["name"] = ""
+
+    recipients = []
+    skipped_rows = []
+
+    for index, row in data_frame.iterrows():
+        row_number = index + 2
+        name = row.get("name", "")
+        email = row.get("email", "")
+        cleaned_name = str(name).strip() if pd.notna(name) else ""
+        cleaned_email = str(email).strip() if pd.notna(email) else ""
+
+        if not cleaned_email:
+            skip_message = f"Skipped CSV row {row_number}: email is empty."
+            skipped_rows.append(skip_message)
+            if logger:
+                logger.warning(skip_message)
+            continue
+
+        recipients.append(
+            {
+                "name": cleaned_name,
+                "email": cleaned_email,
+            }
+        )
+
+    return recipients, skipped_rows

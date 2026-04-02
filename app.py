@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request
 import pandas as pd
 
-from sender import send_email
-from utils import render_email_template
+from sender import get_logger, send_email, test_smtp_connection
+from utils import recipients_from_dataframe, render_email_template
 
 
 app = Flask(__name__)
+logger = get_logger()
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -29,41 +30,39 @@ def index():
         try:
             data_frame = pd.read_csv(csv_file)
         except Exception as error:
+            logger.error("Could not read uploaded CSV file: %s", error)
             result = {
                 "success": False,
                 "message": f"Could not read the uploaded CSV file: {error}",
             }
             return render_template("index.html", result=result, subject=subject, message=message)
 
-        if "email" not in data_frame.columns:
-            result = {
-                "success": False,
-                "message": 'The uploaded CSV file must contain an "email" column.',
-            }
-            return render_template("index.html", result=result, subject=subject, message=message)
+        recipients, skipped_rows = recipients_from_dataframe(data_frame, logger=logger)
 
-        if "name" not in data_frame.columns:
-            data_frame["name"] = ""
-
-        recipients = []
-
-        for _, row in data_frame.iterrows():
-            recipients.append(
-                {
-                    "name": str(row.get("name", "")).strip() if pd.notna(row.get("name", "")) else "",
-                    "email": str(row.get("email", "")).strip() if pd.notna(row.get("email", "")) else "",
-                }
-            )
+        if skipped_rows:
+            for skipped_row in skipped_rows:
+                print(skipped_row)
 
         if not recipients:
             result = {
                 "success": False,
-                "message": "No recipients found in the uploaded CSV file.",
+                "message": "No valid recipients found in the uploaded CSV file.",
             }
             return render_template("index.html", result=result, subject=subject, message=message)
 
         success_count = 0
         failure_count = 0
+
+        smtp_test_success, smtp_test_message = test_smtp_connection()
+        if not smtp_test_success:
+            result = {
+                "success": False,
+                "message": smtp_test_message,
+                "total": len(recipients),
+                "sent": 0,
+                "failed": len(recipients),
+            }
+            return render_template("index.html", result=result, subject=subject, message=message)
 
         try:
             for recipient in recipients:
@@ -71,19 +70,25 @@ def index():
                 recipient_name = recipient.get("name", "").strip() or "Subscriber"
 
                 if not recipient_email:
+                    logger.warning("Skipped recipient with empty email during send loop.")
                     failure_count += 1
                     continue
 
                 email_body = render_email_template(message, recipient_name, recipient_email)
 
+                logger.info("Attempting to send email to %s", recipient_email)
                 if send_email(recipient_email, subject, email_body):
                     success_count += 1
                 else:
                     failure_count += 1
         except Exception as error:
+            logger.exception("Something went wrong while sending emails: %s", error)
             result = {
                 "success": False,
                 "message": f"Something went wrong while sending emails: {error}",
+                "total": len(recipients),
+                "sent": success_count,
+                "failed": failure_count,
             }
             return render_template("index.html", result=result, subject=subject, message=message)
 
