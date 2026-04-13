@@ -1,8 +1,8 @@
 from flask import Flask, render_template, request
 import pandas as pd
 
-from sender import get_logger, send_email, test_smtp_connection
-from utils import recipients_from_dataframe, render_email_template
+from sender import get_logger, send_bulk_emails, test_smtp_connection
+from utils import recipients_from_dataframe
 
 
 app = Flask(__name__)
@@ -50,9 +50,6 @@ def index():
             }
             return render_template("index.html", result=result, subject=subject, message=message)
 
-        success_count = 0
-        failure_count = 0
-
         smtp_test_success, smtp_test_message = test_smtp_connection()
         if not smtp_test_success:
             result = {
@@ -65,44 +62,17 @@ def index():
             return render_template("index.html", result=result, subject=subject, message=message)
 
         try:
-            for recipient in recipients:
-                recipient_email = recipient.get("email", "").strip()
-                recipient_name = recipient.get("name", "").strip() or "Subscriber"
-
-                if not recipient_email:
-                    logger.warning("Skipped recipient with empty email during send loop.")
-                    failure_count += 1
-                    continue
-
-                email_body = render_email_template(message, recipient_name, recipient_email)
-
-                logger.info("Attempting to send email to %s", recipient_email)
-                if send_email(recipient_email, subject, email_body):
-                    success_count += 1
-                else:
-                    failure_count += 1
+            result = send_bulk_emails(recipients, subject, message)
         except Exception as error:
             logger.exception("Something went wrong while sending emails: %s", error)
             result = {
                 "success": False,
                 "message": f"Something went wrong while sending emails: {error}",
                 "total": len(recipients),
-                "sent": success_count,
-                "failed": failure_count,
+                "sent": 0,
+                "failed": len(recipients),
             }
             return render_template("index.html", result=result, subject=subject, message=message)
-
-        result = {
-            "success": success_count > 0,
-            "message": (
-                "Emails sent successfully."
-                if success_count > 0
-                else "Email sending failed. No emails were sent."
-            ),
-            "total": len(recipients),
-            "sent": success_count,
-            "failed": failure_count,
-        }
 
     return render_template("index.html", result=result, subject=subject, message=message)
 

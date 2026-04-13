@@ -2,15 +2,22 @@ import smtplib
 import ssl
 import time
 import logging
+import re
+from html import unescape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr, formatdate, make_msgid
 
 from config import (
+    BATCH_DELAY,
+    BATCH_SIZE,
     EMAIL,
     LOG_FILE,
     MAX_RETRIES,
     PASSWORD,
     RETRY_DELAY,
+    SEND_DELAY,
+    SENDER_NAME,
     SMTP_PORT,
     SMTP_SERVER,
 )
@@ -36,6 +43,11 @@ def get_logger():
 
 
 logger = get_logger()
+GREETING_VARIATIONS = [
+    "Hope you are doing well.",
+    "Wishing you a productive day.",
+    "Thank you for taking a moment to read this.",
+]
 
 
 def mask_secret(secret):
@@ -79,13 +91,42 @@ def get_configuration_issues():
     return issues
 
 
+def strip_html_tags(html_content):
+    text = re.sub(r"<br\s*/?>", "\n", html_content, flags=re.IGNORECASE)
+    text = re.sub(r"</p\s*>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def get_greeting_variation(email_address):
+    if not email_address:
+        return GREETING_VARIATIONS[0]
+
+    index = sum(ord(character) for character in email_address) % len(GREETING_VARIATIONS)
+    return GREETING_VARIATIONS[index]
+
+
+def build_email_content(body, email_address):
+    greeting_line = get_greeting_variation(email_address)
+    html_body = f"<p>{greeting_line}</p>{body}"
+    plain_text_body = strip_html_tags(html_body)
+    return plain_text_body, html_body
+
+
 def create_message(to_email, subject, body):
+    plain_text_body, html_body = build_email_content(body, to_email)
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
-    message["From"] = EMAIL
+    message["From"] = formataddr((SENDER_NAME, EMAIL))
     message["To"] = to_email
+    message["Reply-To"] = EMAIL
+    message["Message-ID"] = make_msgid()
+    message["Date"] = formatdate(localtime=True)
 
-    message.attach(MIMEText(body, "html", "utf-8"))
+    message.attach(MIMEText(plain_text_body, "plain", "utf-8"))
+    message.attach(MIMEText(html_body, "html", "utf-8"))
     return message
 
 
@@ -227,6 +268,7 @@ def send_email(to_email, subject, body):
         return False
 
     message = create_message(to_email, subject, body)
+    started_at = time.time()
 
     for attempt in range(1, MAX_RETRIES + 2):
         try:
@@ -239,7 +281,8 @@ def send_email(to_email, subject, body):
                 print(f"Sending email to {to_email}...")
                 server.sendmail(EMAIL, to_email, message.as_string())
 
-            success_message = f"Email sent successfully to {to_email}"
+            elapsed_time = round(time.time() - started_at, 2)
+            success_message = f"Email sent successfully to {to_email} in {elapsed_time} seconds"
             print(success_message)
             log_email_attempt(to_email, "success")
             return True
@@ -281,3 +324,61 @@ def send_email(to_email, subject, body):
             time.sleep(RETRY_DELAY)
 
     return False
+
+
+def chunk_recipients(recipients, batch_size):
+    for index in range(0, len(recipients), batch_size):
+        yield recipients[index:index + batch_size]
+
+
+def send_bulk_emails(recipients, subject, body):
+    total_recipients = len(recipients)
+    success_count = 0
+    failure_count = 0
+    total_batches = (total_recipients + BATCH_SIZE - 1) // BATCH_SIZE if total_recipients else 0
+
+    for batch_number, batch in enumerate(chunk_recipients(recipients, BATCH_SIZE), start=1):
+        logger.info("Starting batch %s/%s", batch_number, total_batches)
+        print(f"Starting batch {batch_number}/{total_batches}...")
+
+        for recipient in batch:
+            recipient_email = recipient.get("email", "").strip()
+            recipient_name = recipient.get("name", "").strip() or "Subscriber"
+
+            if not recipient_email:
+                logger.warning("Skipped recipient with empty email in batch %s.", batch_number)
+                print(f"Skipped recipient in batch {batch_number}: email is empty.")
+                failure_count += 1
+                continue
+
+            personalized_body = body.replace("{name}", recipient_name).replace("{email}", recipient_email)
+
+            if send_email(recipient_email, subject, personalized_body):
+                success_count += 1
+            else:
+                failure_count += 1
+
+            if SEND_DELAY > 0:
+                logger.info("Waiting %s second(s) before the next email.", SEND_DELAY)
+                print(f"Waiting {SEND_DELAY} second(s) before the next email...")
+                time.sleep(SEND_DELAY)
+
+        logger.info("Finished batch %s/%s", batch_number, total_batches)
+        print(f"Finished batch {batch_number}/{total_batches}.")
+
+        if batch_number < total_batches and BATCH_DELAY > 0:
+            logger.info("Waiting %s second(s) before the next batch.", BATCH_DELAY)
+            print(f"Waiting {BATCH_DELAY} second(s) before the next batch...")
+            time.sleep(BATCH_DELAY)
+
+    return {
+        "success": success_count > 0,
+        "message": (
+            "Emails sent successfully."
+            if success_count > 0
+            else "Email sending failed. No emails were sent."
+        ),
+        "total": total_recipients,
+        "sent": success_count,
+        "failed": failure_count,
+    }
